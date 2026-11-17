@@ -1,0 +1,13 @@
+import { createContext, useContext } from 'react'
+
+export type Theme = 'light' | 'dark' | 'system'
+
+export type ThemeContextValue = { theme: Theme; resolved: 'light' | 'dark'; setTheme: (t: Theme) => void }
+
+export const ThemeContext = createContext<ThemeContextValue>({
+  theme: 'system',
+  resolved: 'light',
+  setTheme: () => {},
+})
+
+export const useTheme = () => useContext(ThemeContext)
