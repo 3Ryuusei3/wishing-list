@@ -2,9 +2,9 @@ import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
 import { z } from 'zod'
-import { getUser, type AuthUser } from './auth'
-import { query } from './db'
-import { BlockedError, fetchMetadata, nameFromUrl } from './metadata'
+import { getUser, type AuthUser } from './auth.js'
+import { query } from './db.js'
+import { BlockedError, fetchMetadata, nameFromUrl } from './metadata.js'
 
 type Env = { Variables: { user: AuthUser | null } }
 
