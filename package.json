@@ -49,5 +49,10 @@
     "oxlint": "^1.90.0",
     "typescript": "~7.0.2",
     "vite": "^8.3.6"
+  },
+  "overrides": {
+    "@neon/auth": {
+      "@better-fetch/fetch": "1.3.3"
+    }
   }
 }
