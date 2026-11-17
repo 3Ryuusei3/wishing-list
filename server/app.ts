@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { HTTPException } from 'hono/http-exception'
+import { handleAuthProxyRequest } from '@neon/auth/server'
 import { z } from 'zod'
 import { getUser, type AuthUser } from './auth.js'
 import { query } from './db.js'
@@ -119,6 +120,26 @@ app.onError((err, c) => {
   if (err instanceof HTTPException) return c.json({ error: err.message }, err.status)
   console.error(err)
   return c.json({ error: 'Error interno del servidor' }, 500)
+})
+
+// ---------- auth proxy ----------
+// The browser talks to Neon Auth through this same-origin proxy, so every auth
+// cookie (OAuth state/challenge, session) is first-party on the app's domain.
+// Without it, Safari/iOS blocks Neon Auth's cross-site cookies and Google sign-in
+// fails with "State integrity check failed".
+app.all('/auth/*', async (c) => {
+  const baseUrl = process.env.NEON_AUTH_BASE_URL
+  const cookieSecret = process.env.NEON_AUTH_COOKIE_SECRET
+  if (!baseUrl || !cookieSecret || cookieSecret.length < 32) {
+    console.error('Auth proxy misconfigured: NEON_AUTH_BASE_URL and NEON_AUTH_COOKIE_SECRET (32+ chars) are required')
+    return c.json({ error: 'El inicio de sesión no está configurado en el servidor' }, 500)
+  }
+  return handleAuthProxyRequest({
+    request: c.req.raw,
+    path: c.req.path.replace(/^\/api\/auth\/?/, ''),
+    baseUrl,
+    cookieSecret,
+  })
 })
 
 // ---------- health ----------

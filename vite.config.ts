@@ -23,11 +23,5 @@ export default defineConfig(({ mode }) => {
     resolve: {
       alias: { '@': path.resolve(import.meta.dirname, './src') },
     },
-    define: {
-      // The public Auth URL is the branch's NEON_AUTH_BASE_URL unless overridden.
-      'import.meta.env.VITE_NEON_AUTH_URL': JSON.stringify(
-        env.VITE_NEON_AUTH_URL || env.NEON_AUTH_BASE_URL || '',
-      ),
-    },
   }
 })
