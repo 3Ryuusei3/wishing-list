@@ -80,7 +80,8 @@ function claimToken(c: Context) {
 const LIST_COLS = `l.id, l.title, l.description, l.emoji, l.event_date as "eventDate", l.share_slug as "shareSlug",
   l.created_at as "createdAt", l.updated_at as "updatedAt"`
 const ITEM_COLS = `i.id, i.name, i.description, i.url, i.price::float8 as price, i.image_url as "imageUrl",
-  i.priority, i.size, i.color, i.position, i.created_at as "createdAt"`
+  i.priority, i.size, i.color, i.position, i.created_at as "createdAt",
+  i.owner_purchased_at is not null as "ownerPurchased"`
 
 async function ownedList(listId: string, userId: string) {
   const [list] = await query(`select ${LIST_COLS} from lists l where l.id = $1 and l.owner_id = $2`, [listId, userId])
@@ -171,7 +172,8 @@ app.get('/me/following', async (c) => {
   const lists = await query(
     `select ${LIST_COLS}, coalesce(nullif(u.name, ''), split_part(u.email, '@', 1)) as "ownerName", u.image as "ownerImage",
        (select count(*)::int from items i where i.list_id = l.id) as "itemCount",
-       (select count(*)::int from items i join purchases p on p.item_id = i.id where i.list_id = l.id) as "purchasedCount",
+       (select count(*)::int from items i where i.list_id = l.id
+          and (i.owner_purchased_at is not null or exists (select 1 from purchases p where p.item_id = i.id))) as "purchasedCount",
        f.created_at as "followedAt"
      from follows f join lists l on l.id = f.list_id join neon_auth."user" u on u.id = l.owner_id
      where f.user_id = $1 and l.owner_id <> $1 order by f.created_at desc`,
@@ -279,6 +281,20 @@ app.patch('/items/:id', async (c) => {
   return c.json({ item })
 })
 
+/** Owner marks a gift as already bought/received (or back to wished). Independent of guest purchases. */
+app.put('/items/:id/owner-purchase', async (c) => {
+  const user = requireUser(c)
+  const { id } = await ownedItem(param(c, 'id'), user.id)
+  const { purchased } = await body(c, z.object({ purchased: z.boolean() }))
+  const [item] = await query(
+    `update items i set owner_purchased_at = case when $2 then coalesce(owner_purchased_at, now()) else null end,
+       updated_at = now()
+     where i.id = $1 returning ${ITEM_COLS}`,
+    [id, purchased],
+  )
+  return c.json({ item })
+})
+
 app.delete('/items/:id', async (c) => {
   const user = requireUser(c)
   const { id } = await ownedItem(param(c, 'id'), user.id)
@@ -357,15 +373,19 @@ app.get('/shared/:slug', async (c) => {
 async function sharedItem(c: Context<Env>) {
   const list = await sharedList(c.req.param('slug')!)
   const itemId = param(c, 'itemId')
-  const [item] = await query('select id from items where id = $1 and list_id = $2', [itemId, list.id])
+  const [item] = await query<{ id: string; ownerPurchased: boolean }>(
+    'select id, owner_purchased_at is not null as "ownerPurchased" from items where id = $1 and list_id = $2',
+    [itemId, list.id],
+  )
   if (!item) throw new HTTPException(404, { message: 'Regalo no encontrado' })
-  return { list, itemId }
+  return { list, itemId, ownerPurchased: item.ownerPurchased }
 }
 
 app.post('/shared/:slug/items/:itemId/purchase', async (c) => {
   const user = c.get('user')
-  const { list, itemId } = await sharedItem(c)
+  const { list, itemId, ownerPurchased } = await sharedItem(c)
   if (user?.id === list.ownerId) throw new HTTPException(403, { message: 'No puedes marcar regalos de tu propia lista' })
+  if (ownerPurchased) throw new HTTPException(409, { message: `${list.ownerName} ya tiene este regalo` })
   const token = claimToken(c)
   if (!token) throw new HTTPException(400, { message: 'Falta el identificador del navegador' })
   const { buyerName } = await body(c, z.object({ buyerName: optText(80) }))

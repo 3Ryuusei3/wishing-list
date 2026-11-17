@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { ArrowLeftIcon, CalendarIcon, EyeIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, UsersIcon } from 'lucide-react'
+import { ArrowLeftIcon, CalendarIcon, CircleCheckIcon, EyeIcon, PencilIcon, PlusIcon, Share2Icon, Trash2Icon, Undo2Icon, UsersIcon } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { toast } from 'sonner'
@@ -15,6 +15,7 @@ import { ListDialog } from '@/components/list-dialog'
 import { FullPageSpinner } from '@/components/require-auth'
 import { FloatingActions } from '@/components/floating-actions'
 import { IconButton } from '@/components/icon-button'
+import { WishTabs, type WishTab } from '@/components/wish-tabs'
 import { ShareButton } from '@/components/share-button'
 import {
   AlertDialog,
@@ -46,6 +47,7 @@ export function ListDetailPage() {
   const [sort, setSort] = useSortMode()
   const coarse = useCoarsePointer()
   const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null)
+  const [tab, setTab] = useState<WishTab>('wanted')
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: key })
@@ -90,6 +92,25 @@ export function ListDetailPage() {
     },
     onSettled: () => qc.invalidateQueries({ queryKey: key }),
   })
+  // Owner marks a gift as bought/received (or back to wished). Optimistic.
+  const ownerPurchase = useMutation({
+    mutationFn: ({ item, purchased }: { item: Item; purchased: boolean }) =>
+      api(`/items/${item.id}/owner-purchase`, { method: 'PUT', body: { purchased } }),
+    onMutate: async ({ item, purchased }) => {
+      await qc.cancelQueries({ queryKey: key })
+      const prev = qc.getQueryData<Detail>(key)
+      if (prev)
+        qc.setQueryData<Detail>(key, { ...prev, items: prev.items.map((i) => (i.id === item.id ? { ...i, ownerPurchased: purchased } : i)) })
+      return { prev }
+    },
+    onSuccess: (_d, { item, purchased }) =>
+      toast.success(purchased ? `“${item.name}” pasa a comprados` : `“${item.name}” vuelve a deseados`),
+    onError: (e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(key, ctx.prev)
+      toast.error(e.message)
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: key }),
+  })
   const removeItem = useMutation({
     mutationFn: (itemId: string) => api(`/items/${itemId}`, { method: 'DELETE' }),
     onSuccess: () => (refresh(), toast.success('Regalo eliminado')),
@@ -108,16 +129,30 @@ export function ListDetailPage() {
     )
 
   const { list, items } = data
-  const numbers = orderNumbers(items)
+  const wanted = items.filter((i) => !i.ownerPurchased)
+  const bought = items.filter((i) => i.ownerPurchased)
+  const shown = tab === 'wanted' ? wanted : bought
+  // Numbers follow the owner's order within the current tab.
+  const numbers = orderNumbers(shown)
   const card = (item: Item, handle?: ReactNode) => (
     <ItemCard
       item={item}
       number={numbers.get(item.id)}
-      numberDigits={String(items.length).length}
+      numberDigits={String(shown.length).length}
       handle={handle}
       layout={view}
+      status={item.ownerPurchased ? 'Comprado' : undefined}
       actions={
         <>
+          {item.ownerPurchased ? (
+            <IconButton label="Volver a deseados" variant="ghost" className="size-8" onClick={() => ownerPurchase.mutate({ item, purchased: false })}>
+              <Undo2Icon />
+            </IconButton>
+          ) : (
+            <IconButton label="Marcar como comprado" variant="ghost" className="size-8" onClick={() => ownerPurchase.mutate({ item, purchased: true })}>
+              <CircleCheckIcon />
+            </IconButton>
+          )}
           <Button size="icon" variant="ghost" className="size-8" aria-label="Editar regalo" onClick={() => setItemDialog({ open: true, item })}>
             <PencilIcon />
           </Button>
@@ -177,7 +212,7 @@ export function ListDetailPage() {
         </h2>
         {items.length > 0 && (
           <div className="order-last flex w-full items-center gap-2 sm:order-none sm:w-auto">
-            {items.length > 1 && <SortSelect value={sort} onChange={setSort} className="flex-1 sm:flex-none" />}
+            {shown.length > 1 && <SortSelect value={sort} onChange={setSort} className="flex-1 sm:flex-none" />}
             <ViewToggle value={view} onChange={setView} />
           </div>
         )}
@@ -185,6 +220,8 @@ export function ListDetailPage() {
           <PlusIcon /> Añadir regalo
         </Button>
       </div>
+
+      {items.length > 0 && <WishTabs value={tab} onChange={setTab} wanted={wanted.length} bought={bought.length} />}
 
       {items.length === 0 ? (
         <button
@@ -194,12 +231,19 @@ export function ListDetailPage() {
           <p className="font-heading text-2xl">Añade tu primer regalo</p>
           <p className="text-sm text-muted-foreground">Pega el enlace de cualquier tienda y nosotros hacemos el resto.</p>
         </button>
+      ) : shown.length === 0 ? (
+        <div className="rounded-md border border-dashed p-10 text-center text-muted-foreground">
+          {tab === 'bought'
+            ? 'Aún no has marcado ningún regalo como comprado. Usa ✓ en un regalo cuando ya lo tengas.'
+            : '¡Ya tienes todo lo de tu lista! Añade más regalos cuando quieras.'}
+        </div>
       ) : (
-        sort === 'custom' ? (
-          <SortableItems items={items} mode={view} onReorder={(next) => reorder.mutate(next)} renderItem={card} />
+        tab === 'wanted' && sort === 'custom' ? (
+          // Reordering happens among wished gifts; bought ones keep their place at the end.
+          <SortableItems items={wanted} mode={view} onReorder={(next) => reorder.mutate([...next, ...bought])} renderItem={card} />
         ) : (
           <ItemsLayout mode={view}>
-            {sortItems(items, sort).map((item) => (
+            {sortItems(shown, sort).map((item) => (
               <div key={item.id} className="h-full">{card(item)}</div>
             ))}
           </ItemsLayout>
@@ -207,9 +251,9 @@ export function ListDetailPage() {
       )}
 
       <p className="text-center text-xs text-muted-foreground">
-        {items.length > 1 && sort === 'custom' && (coarse ? 'Mantén pulsado un regalo para moverlo. ' : 'Arrastra ⋮⋮ para cambiar el orden. ')}
-        {items.length > 1 && sort !== 'custom' && 'Para reordenar, elige “Orden de la lista”. '}
-        Para mantener la sorpresa, no verás qué regalos se han comprado.
+        {tab === 'wanted' && wanted.length > 1 && sort === 'custom' && (coarse ? 'Mantén pulsado un regalo para moverlo. ' : 'Arrastra ⋮⋮ para cambiar el orden. ')}
+        {tab === 'wanted' && wanted.length > 1 && sort !== 'custom' && 'Para reordenar, elige “Orden de la lista”. '}
+        Para mantener la sorpresa, no verás lo que compren tus invitados; aquí solo aparece lo que marques tú.
       </p>
 
       <FloatingActions anchor={toolbar} list={list} onAdd={() => setItemDialog({ open: true })} />

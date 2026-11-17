@@ -40,6 +40,8 @@ create index if not exists items_list_idx on items(list_id, position, created_at
 alter table items add column if not exists size text check (length(size) <= 40);
 -- Optional colour, e.g. "Azul marino".
 alter table items add column if not exists color text check (length(color) <= 40);
+-- Set when the list owner marks the gift as already bought/received (independent of guest purchases).
+alter table items add column if not exists owner_purchased_at timestamptz;
 
 -- One purchase per item. Anonymous buyers keep claim_token in their browser to undo.
 create table if not exists purchases (

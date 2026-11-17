@@ -15,6 +15,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { api, formatDate, type List, type SharedItem } from '@/lib/api'
+import { WishTabs, type WishTab } from '@/components/wish-tabs'
 import { authClient } from '@/lib/auth'
 import { initials } from '@/lib/utils'
 
@@ -44,6 +45,7 @@ export function SharedListPage() {
   const [buying, setBuying] = useState<SharedItem | null>(null)
   const [buyerName, setBuyerName] = useState(readName)
   const [view, setView] = useViewMode()
+  const [tab, setTab] = useState<WishTab>('wanted')
   const [sort, setSort] = useSortMode()
 
   const refresh = () => qc.invalidateQueries({ queryKey: ['shared', slug] })
@@ -80,12 +82,15 @@ export function SharedListPage() {
     )
 
   const { list, items, isOwner, isFollowing } = data
-  const purchasedCount = items.filter((i) => i.purchased).length
-  // Available first, then purchased.
-  const numbers = orderNumbers(items)
-  // Chosen order, with already-bought gifts moved to the end for guests (stable sort keeps the rest).
-  const ordered = sortItems(items, sort)
-  const sorted = isOwner ? ordered : [...ordered].sort((a, b) => Number(a.purchased) - Number(b.purchased))
+  // Guests: "bought" = a guest bought it or the owner already has it.
+  // Owner preview: only what the owner marked (guest purchases stay hidden).
+  const isBought = (i: SharedItem) => i.ownerPurchased || (!isOwner && i.purchased)
+  const wanted = items.filter((i) => !isBought(i))
+  const bought = items.filter(isBought)
+  const purchasedCount = bought.length
+  const shown = tab === 'wanted' ? wanted : bought
+  const numbers = orderNumbers(shown)
+  const sorted = sortItems(shown, sort)
 
   const confirmPurchase = (e: FormEvent) => {
     e.preventDefault()
@@ -161,14 +166,20 @@ export function SharedListPage() {
       {items.length > 0 && (
         <div className="flex flex-wrap items-center gap-3">
           <h2 className="mr-auto font-heading text-2xl">Regalos</h2>
-          {items.length > 1 && <SortSelect value={sort} onChange={setSort} customLabel={isOwner ? undefined : 'Orden del creador'} />}
+          {shown.length > 1 && <SortSelect value={sort} onChange={setSort} customLabel={isOwner ? undefined : 'Orden del creador'} />}
           <ViewToggle value={view} onChange={setView} />
         </div>
       )}
 
+      {items.length > 0 && <WishTabs value={tab} onChange={setTab} wanted={wanted.length} bought={bought.length} />}
+
       {items.length === 0 ? (
         <div className="rounded-md border border-dashed p-10 text-center text-muted-foreground">
           Esta lista todavía no tiene regalos.
+        </div>
+      ) : shown.length === 0 ? (
+        <div className="rounded-md border border-dashed p-10 text-center text-muted-foreground">
+          {tab === 'bought' ? 'Todavía no se ha comprado ningún regalo.' : '¡Ya está todo comprado!'}
         </div>
       ) : (
         <ItemsLayout mode={view}>
@@ -177,15 +188,24 @@ export function SharedListPage() {
               key={item.id}
               item={item}
               number={numbers.get(item.id)}
-              numberDigits={String(items.length).length}
+              numberDigits={String(shown.length).length}
               layout={view}
-              dimmed={item.purchased && !item.mine}
+              dimmed={isBought(item) && !item.mine}
               status={
-                item.purchased &&
-                (item.mine ? 'Lo compras tú' : item.buyerName ? `Lo compra ${item.buyerName}` : 'Ya comprado')
+                !isOwner && item.purchased
+                  ? item.mine
+                    ? 'Lo compras tú'
+                    : item.buyerName
+                      ? `Lo compra ${item.buyerName}`
+                      : 'Ya comprado'
+                  : item.ownerPurchased
+                    ? isOwner
+                      ? 'Comprado'
+                      : `${list.ownerName} ya lo tiene`
+                    : undefined
               }
               actions={
-                isOwner ? null : item.purchased ? (
+                isOwner || (item.ownerPurchased && !item.purchased) ? null : item.purchased ? (
                   item.mine && (
                     <Button size="sm" variant="ghost" disabled={undo.isPending} onClick={() => undo.mutate(item.id)}>
                       <Undo2Icon /> Desmarcar

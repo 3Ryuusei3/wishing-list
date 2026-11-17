@@ -30,6 +30,8 @@ export type Item = {
   color: string | null
   position: number
   createdAt: string
+  /** The owner marked it as already bought/received. */
+  ownerPurchased: boolean
 }
 
 export type SharedItem = Item & { purchased: boolean; buyerName: string | null; mine: boolean }
