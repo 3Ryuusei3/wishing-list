@@ -80,6 +80,26 @@ function DetailTags({ item }: { item: Item }) {
   )
 }
 
+/**
+ * Order number as a small circle sitting on the card's top-left corner.
+ * Used by grid cards (all sizes) and list rows (phones), so both look identical.
+ * Upright digits (not italic serif) so they are optically centred in the circle.
+ * The parent card must be `relative` and not clip overflow.
+ */
+function CornerNumber({ n, className }: { n: number; className?: string }) {
+  return (
+    <span
+      aria-label={`Número ${n}`}
+      className={cn(
+        'absolute -top-2.5 -left-2.5 z-10 inline-flex h-6 min-w-6 items-center justify-center rounded-full border bg-card px-1.5 text-[0.7rem] leading-none font-semibold text-wine tabular-nums shadow-sm',
+        className,
+      )}
+    >
+      {n}
+    </span>
+  )
+}
+
 function StoreLink({ url }: { url: string | null }) {
   if (!url) return null
   let host: string
@@ -136,16 +156,8 @@ export function ItemCard({
           dimmed && 'opacity-60',
         )}
       >
-        {number != null && (
-          // Phone: order number as a small circle sitting on the card's top-left corner.
-          // Upright digits (not italic serif) so they are optically centred in the circle.
-          <span
-            aria-hidden
-            className="absolute -top-2.5 -left-2.5 z-10 inline-flex h-6 min-w-6 items-center justify-center rounded-full border bg-card px-1.5 text-[0.7rem] leading-none font-semibold text-wine tabular-nums shadow-sm sm:hidden"
-          >
-            {number}
-          </span>
-        )}
+        {/* Phones: corner circle; sm+ shows the number in the left column instead. */}
+        {number != null && <CornerNumber n={number} className="sm:hidden" />}
         <div className="col-start-1 row-start-1 flex items-start gap-2 sm:row-span-3 sm:gap-3">
           {(handle || number != null) && (
             <div className={cn('h-8 items-center', handle ? 'flex' : 'hidden sm:flex')}>
@@ -193,12 +205,10 @@ export function ItemCard({
   }
 
   return (
-    <Card className={cn('group relative h-full gap-0 overflow-hidden rounded-md p-0 shadow-none transition hover:border-foreground/25', dimmed && 'opacity-60')}>
-      <div className="relative aspect-[4/3] overflow-hidden border-b">
+    <Card className={cn('group relative h-full gap-0 overflow-visible rounded-md p-0 shadow-none transition hover:border-foreground/25', dimmed && 'opacity-60')}>
+      {number != null && <CornerNumber n={number} />}
+      <div className="relative aspect-[4/3] overflow-hidden rounded-t-md border-b">
         <ItemImage src={item.imageUrl} />
-        {number != null && (
-          <OrderNumber n={number} className="absolute top-2 left-2 grid h-7 min-w-7 place-items-center rounded-sm bg-card/95 px-1.5 text-base shadow-sm" />
-        )}
         <PriorityBadge item={item} className="absolute top-2 right-2 bg-background/90 backdrop-blur" />
         {status && (
           <div className="absolute inset-0 grid place-items-center bg-background/60">
